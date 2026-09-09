@@ -724,10 +724,26 @@ async function do_check(req_body, res) {
 
     // ── Normal execution ─────────────────────────────────────────────────────
     let result;
+    let compiled_binary;
     try {
         const box = await job.prime();
         result = await job.execute(box);
         if (result.run === undefined) result.run = result.compile;
+
+        // compile-once: /execute route'idagi bilan bir xil — so'rovda
+        // return_binary=true bo'lsa va compile muvaffaqiyatli o'tgan bo'lsa,
+        // binary faylni box tozalanishidan oldin base64 qilib qaytaramiz.
+        if (req_body.return_binary && result.compile && result.compile.code === 0 && !result.compile.status) {
+            const submission_dir = path.join(box.dir, 'submission');
+            const known_outputs = ['a.out', 'code.jar', 'binary'];
+            for (const name of known_outputs) {
+                try {
+                    const data = await fs.readFile(path.join(submission_dir, name));
+                    compiled_binary = { name, data: data.toString('base64') };
+                    break;
+                } catch (_) {}
+            }
+        }
     } catch (error) {
         logger.error(`Error executing check job: ${job.uuid}:\n${error}`);
         return res.status(500).json({ message: 'Job bajarishda xato: ' + error.message });
@@ -739,6 +755,7 @@ async function do_check(req_body, res) {
         language: result.language,
         version: result.version,
         ...(result.compile ? { compile: format_stage(result.compile) } : {}),
+        ...(compiled_binary ? { compiled_binary } : {}),
     };
 
     if (result.compile && (result.compile.code !== 0 || result.compile.status)) {
