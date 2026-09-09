@@ -361,7 +361,13 @@ class Job {
         }
 
         const data = await new Promise((res, rej) => {
-            proc.on('exit', (_, signal) => {
+            // 'exit' o'rniga 'close' kutiladi — Node.js hujjatlariga ko'ra
+            // 'exit' hodisasi stdout/stderr oqimlari TO'LIQ yetkazilishidan
+            // OLDIN otilishi mumkin (ba'zi ma'lumot hali "yo'lda" qolishi
+            // mumkin), 'close' esa faqat barcha oqimlar to'liq yopilgach
+            // otiladi — shu qatorsiz yuqori parallel yuklamada chiqish
+            // vaqti-vaqti bilan yo'qolib qolardi.
+            proc.on('close', (_, signal) => {
                 res({ signal });
             });
             proc.on('error', err => {
