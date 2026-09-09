@@ -306,17 +306,11 @@ class Job {
             if (IS_DEBUG) this.logger.debug('stdin EPIPE (jarayon erta tugagan):', err.message);
         });
 
-        if (event_bus === null) {
-            proc.stdin.end(this.stdin);
-        } else {
-            event_bus.on('stdin', data => {
-                proc.stdin.write(data);
-            });
-            event_bus.on('kill', signal => {
-                proc.kill(signal);
-            });
-        }
-
+        // MUHIM: stdout/stderr tinglovchilari stdin.end() dan OLDIN ulanishi
+        // shart — aks holda (ayniqsa yuqori parallel yuklamada, event loop
+        // band bo'lganda) bola-jarayon tez tugab ketsa, uning chiqishi hech
+        // qanday tinglovchi ulanmasdan turib yo'qolib qolishi mumkin edi
+        // (natijada stdout="" bo'lib, WA/noto'g'ri natija chiqarardi).
         proc.stderr.on('data', data => {
             if (event_bus !== null) {
                 event_bus.emit('stderr', data);
@@ -354,6 +348,17 @@ class Job {
                 output_chunks.push(data);
             }
         });
+
+        if (event_bus === null) {
+            proc.stdin.end(this.stdin);
+        } else {
+            event_bus.on('stdin', data => {
+                proc.stdin.write(data);
+            });
+            event_bus.on('kill', signal => {
+                proc.kill(signal);
+            });
+        }
 
         const data = await new Promise((res, rej) => {
             proc.on('exit', (_, signal) => {
