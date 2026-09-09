@@ -473,6 +473,17 @@ router.post('/execute', async (req, res) => {
             }
         }
 
+        // input.txt/output.txt fayl bilan ishlaydigan yechimlar uchun: so'rovda
+        // read_output_file=true bo'lsa, box tozalanishidan oldin output.txt
+        // faylini (mavjud bo'lsa) o'qib javobga qo'shamiz.
+        if (req.body.read_output_file) {
+            try {
+                const submission_dir = path.join(box.dir, 'submission');
+                const data = await fs.readFile(path.join(submission_dir, 'output.txt'), 'utf8');
+                response.output_file = data;
+            } catch (_) {}
+        }
+
         return res.status(200).send(response);
     } catch (error) {
         logger.error(`Error executing job: ${job.uuid}:\n${error}`);
