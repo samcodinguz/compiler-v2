@@ -218,6 +218,7 @@ function get_job(body) {
         compile_timeout,
         run_cpu_time,
         compile_cpu_time,
+        skip_compile,
     } = body;
 
     return new Promise((resolve, reject) => {
@@ -241,7 +242,10 @@ function get_job(body) {
             return reject({ message: `${language}-${version} runtime is unknown` });
         }
 
+        // skip_compile bilan kelayotgan so'rovda manba kod emas, oldindan
+        // compile qilingan binary (base64) yuboriladi — utf8 fayl talab qilinmaydi.
         if (
+            !skip_compile &&
             rt.language !== 'file' &&
             !files.some(file => !file.encoding || file.encoding === 'utf8')
         ) {
@@ -275,6 +279,7 @@ function get_job(body) {
                 args: args ?? [],
                 stdin: stdin ?? '',
                 files,
+                skip_compile: !!skip_compile,
                 timeouts: {
                     run: run_timeout ?? rt.timeouts.run,
                     compile: compile_timeout ?? rt.timeouts.compile,
@@ -450,6 +455,22 @@ router.post('/execute', async (req, res) => {
 
         if (result.compile) {
             response.compile = format_stage(result.compile);
+        }
+
+        // compile-once: so'rovda return_binary=true bo'lsa va compile
+        // muvaffaqiyatli o'tgan bo'lsa, binary faylni box tozalanishidan oldin
+        // base64 qilib qaytaramiz — keyingi testlar shu binaryni skip_compile
+        // bilan qayta ishlatib, qayta kompilyatsiyadan qochadi.
+        if (req.body.return_binary && result.compile && result.compile.code === 0 && !result.compile.status) {
+            const submission_dir = path.join(box.dir, 'submission');
+            const known_outputs = ['a.out', 'code.jar', 'binary'];
+            for (const name of known_outputs) {
+                try {
+                    const data = await fs.readFile(path.join(submission_dir, name));
+                    response.compiled_binary = { name, data: data.toString('base64') };
+                    break;
+                } catch (_) {}
+            }
         }
 
         return res.status(200).send(response);

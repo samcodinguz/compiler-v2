@@ -133,10 +133,14 @@ class Job {
         timeouts,
         cpu_times,
         memory_limits,
+        skip_compile = false,
     }) {
         this.uuid = uuidv4();
         this.logger = logplease.create(`job/${this.uuid}`);
         this.runtime = runtime;
+        // compile-once: bir marta compile qilingan binary boshqa testlarga
+        // qayta uzatilganda, shu jobda compile bosqichi butunlay o'tkazib yuboriladi
+        this.skip_compile = skip_compile;
         this.files = files.map((file, i) => ({
             name: file.name || `file${i}.code`,
             content: file.content,
@@ -466,7 +470,7 @@ class Job {
                       },
                   };
 
-        if (this.runtime.compiled) {
+        if (this.runtime.compiled && !this.skip_compile) {
             if (IS_DEBUG) this.logger.debug('Compiling');
             emit_event_bus_stage('compile');
 
@@ -506,6 +510,16 @@ class Job {
                     );
                 }
             }
+        } else if (this.skip_compile) {
+            // Binary boshqa (avvalgi) jobda compile qilingan va shu jobga
+            // fayl sifatida (base64) uzatilgan — faqat bajarilish huquqini beramiz,
+            // compile bosqichi butunlay o'tkazib yuboriladi.
+            if (IS_DEBUG) this.logger.debug('Skipping compile, using precompiled binary');
+            const submission_dir = path.join(box.dir, 'submission');
+            const known_outputs = ['a.out', 'code.jar', 'binary'];
+            for (const name of known_outputs) {
+                await fs.chmod(path.join(submission_dir, name), 0o755).catch(() => {});
+            }
         }
 
         let run;
@@ -515,7 +529,11 @@ class Job {
             run = await this.safe_call(
                 box,
                 'run',
-                [code_files[0].name, ...this.args],
+                // skip_compile paytida code_files bo'sh bo'lishi mumkin (faqat
+                // base64 binary yuborilgan) — run skriptlari bu nomni odatda
+                // e'tiborsiz qoldiradi (masalan gcc: shift + ./a.out), shuning
+                // uchun mavjud bo'lmasa xavfsiz zaxira qiymat ishlatiladi.
+                [code_files[0]?.name ?? 'a.out', ...this.args],
                 this.timeouts.run,
                 this.cpu_times.run,
                 this.memory_limits.run,
