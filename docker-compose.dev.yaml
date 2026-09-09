@@ -3,11 +3,11 @@ version: '3.2'
 services:
   api:
     build: api
-    container_name: compiler_api
+    container_name: compiler_api_v2
     privileged: true
     restart: always
     ports:
-      - 2000:2000
+      - 2001:2000
     volumes:
       - ./data/compiler/packages:/compiler/packages
     environment:
@@ -15,7 +15,7 @@ services:
 
   repo:
     build: repo
-    container_name: compiler_repo
+    container_name: compiler_repo_v2
     command: ['--no-build']
     volumes:
       - .:/compiler

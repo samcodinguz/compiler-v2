@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  compiler_api:
+  compiler_api_v2:
     build:
       context: ./api
-    container_name: compiler_api
+    container_name: compiler_api_v2
     restart: always
     privileged: true
     ports:
-      - "127.0.0.1:2000:2000"
+      - "127.0.0.1:2001:2000"
     volumes:
       - ./data/compiler/packages:/compiler/packages
     tmpfs:
