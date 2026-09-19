@@ -7,9 +7,18 @@ case "${PISTON_LANGUAGE}" in
     basic.net)
         ;&
     fsharp.net)
-        ;&
+        shift
+        dotnet bin/Debug/net5.0/$(basename $(realpath .)).dll "$@"
+        ;;
     csharp.net)
         shift
+        # compile-once orqali qayta ishlatilganda faqat submission.dll uzatiladi —
+        # deps.json/runtimeconfig.json (kodga bog'liq emas, doim bir xil) shu yerda
+        # tiklanadi, aks holda dotnet ishga tushmaydi. Haqiqiy compile'dan keyin bu
+        # fayllar allaqachon bor bo'lgani uchun ustidan yozilmaydi.
+        mkdir -p bin/Debug/net5.0
+        [ -f bin/Debug/net5.0/submission.deps.json ] || cp "$DOTNET_ROOT/_submission_template/submission.deps.json" bin/Debug/net5.0/submission.deps.json
+        [ -f bin/Debug/net5.0/submission.runtimeconfig.json ] || cp "$DOTNET_ROOT/_submission_template/submission.runtimeconfig.json" bin/Debug/net5.0/submission.runtimeconfig.json
         dotnet bin/Debug/net5.0/$(basename $(realpath .)).dll "$@"
         ;;
     fsi)
