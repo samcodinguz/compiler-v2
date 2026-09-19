@@ -504,7 +504,7 @@ class Job {
                 //   code.jar → Kotlin, Scala, Groovy
                 //   binary → Rust
                 const submission_dir = path.join(box.dir, 'submission');
-                const known_outputs = ['a.out', 'code.jar', 'binary'];
+                const known_outputs = ['a.out', 'code.jar', 'binary', 'out'];  // 'out' — Mono (csharp/basic)
                 // .NET (csharp.net/basic.net/fsharp.net) tili o'z natijasini bin/Debug/<tfm>/*.dll
                 // ostiga yozadi — yuqoridagi qattiq nomlar ro'yxatida yo'q, shuning uchun bu
                 // tekshiruv dotnet runtime'lari uchun o'tkazib yuboriladi (compile.code/status
