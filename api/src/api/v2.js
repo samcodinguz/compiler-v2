@@ -463,7 +463,7 @@ router.post('/execute', async (req, res) => {
         // bilan qayta ishlatib, qayta kompilyatsiyadan qochadi.
         if (req.body.return_binary && result.compile && result.compile.code === 0 && !result.compile.status) {
             const submission_dir = path.join(box.dir, 'submission');
-            const known_outputs = ['a.out', 'code.jar', 'binary'];
+            const known_outputs = ['a.out', 'code.jar', 'binary', 'out'];  // 'out' — Mono (csharp/basic)
             for (const name of known_outputs) {
                 try {
                     const data = await fs.readFile(path.join(submission_dir, name));
@@ -735,7 +735,7 @@ async function do_check(req_body, res) {
         // binary faylni box tozalanishidan oldin base64 qilib qaytaramiz.
         if (req_body.return_binary && result.compile && result.compile.code === 0 && !result.compile.status) {
             const submission_dir = path.join(box.dir, 'submission');
-            const known_outputs = ['a.out', 'code.jar', 'binary'];
+            const known_outputs = ['a.out', 'code.jar', 'binary', 'out'];  // 'out' — Mono (csharp/basic)
             for (const name of known_outputs) {
                 try {
                     const data = await fs.readFile(path.join(submission_dir, name));
