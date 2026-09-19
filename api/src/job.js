@@ -505,7 +505,12 @@ class Job {
                 //   binary → Rust
                 const submission_dir = path.join(box.dir, 'submission');
                 const known_outputs = ['a.out', 'code.jar', 'binary'];
-                const any_output = await Promise.all(
+                // .NET (csharp.net/basic.net/fsharp.net) tili o'z natijasini bin/Debug/<tfm>/*.dll
+                // ostiga yozadi — yuqoridagi qattiq nomlar ro'yxatida yo'q, shuning uchun bu
+                // tekshiruv dotnet runtime'lari uchun o'tkazib yuboriladi (compile.code/status
+                // tekshiruvi yuqorida allaqachon haqiqiy compile xatolarini ushlab qoladi).
+                const skip_output_check = this.runtime.runtime === 'dotnet';
+                const any_output = skip_output_check || await Promise.all(
                     known_outputs.map(f =>
                         fs.access(path.join(submission_dir, f)).then(() => true).catch(() => false)
                     )
