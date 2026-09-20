@@ -675,7 +675,11 @@ async function do_check(req_body, res) {
 
     // ── Validator (static source analysis) ──────────────────────────────────
     if (validator && typeof validator === 'object') {
-        const solution_code = req_body.files?.[0]?.content || '';
+        // precompiled_binary/skip_compile ishlatilganda files[0].content endi
+        // manba kod emas — compile qilingan binary (base64) bo'ladi. source_code
+        // yuborilgan bo'lsa (haqiqiy manba kod) shuni ustuvor qilamiz, aks holda
+        // eski xatti-harakat (files[0]) uchun orqaga moslik saqlanadi.
+        const solution_code = req_body.source_code ?? req_body.files?.[0]?.content ?? '';
         let vres;
         try {
             vres = await run_validator(python_rt, { validator_config: validator, solution_code });
@@ -778,7 +782,10 @@ async function do_check(req_body, res) {
             input:           input_content,
             expected_output,
             user_output:     result.run?.stdout || '',
-            user_code:       req_body.files?.[0]?.content || '',
+            // precompiled_binary/skip_compile bo'lsa files[0].content endi
+            // manba kod emas (compile qilingan binary, base64) — source_code
+            // ustuvor, bo'lmasa eski xatti-harakatga (files[0]) tushadi.
+            user_code:       req_body.source_code ?? req_body.files?.[0]?.content ?? '',
         });
     } catch (error) {
         logger.error(`Checker xatosi (job ${job.uuid}): ${error.message}`);
