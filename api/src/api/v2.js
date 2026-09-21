@@ -593,7 +593,7 @@ async function compile_for_interactive(user_rt, user_files) {
     }
 }
 
-async function run_interactive_checker(python_rt, user_rt, { checker_code, input, answer, user_files }) {
+async function run_interactive_checker(python_rt, user_rt, { checker_code, input, answer, user_files, run_timeout, cpu_time, memory_limit }) {
     const is_python = user_rt.language === 'python';
     const config = { user_language: user_rt.language, compiled: false, binary: null, source_file: null };
     const extra_files = [];
@@ -633,9 +633,15 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
         ],
         args: [],
         stdin: '',
-        timeouts:      { run: python_rt.timeouts.run,      compile: 0 },
-        cpu_times:     { run: python_rt.cpu_times.run,     compile: 0 },
-        memory_limits: { run: python_rt.memory_limits.run, compile: -1 },
+        // Chaqiruvchi (Django) masalaning haqiqiy time_limit/memory_limit'ini
+        // shu maydonlar orqali beradi — shunda kontestant + interaktor
+        // jarayonlarining umumiy vaqti/xotirasi python_rt'ning standart
+        // (odatda juda katta) qiymatlariga emas, balki masalaning o'z
+        // limitiga qarab cheklanadi. Berilmasa (eski chaqiruvchilar uchun),
+        // avvalgi xatti-harakat saqlanadi.
+        timeouts:      { run: run_timeout   ?? python_rt.timeouts.run,      compile: 0 },
+        cpu_times:     { run: cpu_time      ?? python_rt.cpu_times.run,     compile: 0 },
+        memory_limits: { run: memory_limit  ?? python_rt.memory_limits.run, compile: -1 },
     });
 
     try {
@@ -706,10 +712,19 @@ async function do_check(req_body, res) {
         const checker_code = typeof checker === 'string' ? checker : DEFAULT_CHECKER;
         let ires;
         try {
+            // `job` yuqorida get_job(req_body) orqali yaratilgan va so'rovdagi
+            // run_timeout/run_cpu_time/run_memory_limit'ni (mavjud bo'lsa)
+            // kontestant runtime'ining konfiguratsiya qilingan limitiga
+            // nisbatan allaqachon tekshirib/joylab qo'ygan — shu qiymatlarni
+            // qayta ishlatamiz, shunda interaktiv test ham xuddi shu
+            // qoidalar (masalaning haqiqiy vaqt/xotira limiti) bilan yuradi.
             ires = await run_interactive_checker(python_rt, job.runtime, {
                 checker_code,
                 input: input_content,
                 answer: expected_output,
+                run_timeout: job.timeouts.run,
+                cpu_time: job.cpu_times.run,
+                memory_limit: job.memory_limits.run,
                 user_files: req_body.files || [],
             });
         } catch (error) {
