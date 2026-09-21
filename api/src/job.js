@@ -134,10 +134,18 @@ class Job {
         cpu_times,
         memory_limits,
         skip_compile = false,
+        // Interaktiv chekker uchun: box asosiy `runtime` (masalan python)
+        // bilan quriladi, lekin ichida kontestantning O'Z tili (masalan
+        // .NET/Mono) ham ishga tushishi kerak bo'lsa, shu tilning papkasi va
+        // muhit o'zgaruvchilarini QO'SHIMCHA ravishda box'ga ulash uchun
+        // ishlatiladi. Berilmasa (standart), xatti-harakat butunlay
+        // o'zgarishsiz qoladi.
+        secondary_runtime = null,
     }) {
         this.uuid = uuidv4();
         this.logger = logplease.create(`job/${this.uuid}`);
         this.runtime = runtime;
+        this.secondary_runtime = secondary_runtime;
         // compile-once: bir marta compile qilingan binary boshqa testlarga
         // qayta uzatilganda, shu jobda compile bosqichi butunlay o'tkazib yuboriladi
         this.skip_compile = skip_compile;
@@ -280,11 +288,17 @@ class Job {
                 '-E',
                 'HOME=/tmp',
                 ...this.runtime.env_vars.flatMap(v => ['-E', v]),
+                // secondary_runtime berilgan bo'lsa (interaktiv checker_job'da
+                // kontestantning o'z tili) — uning muhit o'zgaruvchilari ham
+                // (masalan DOTNET_ROOT/PATH) shu yerga qo'shiladi, aks holda
+                // bo'sh massiv — hech narsa o'zgarmaydi.
+                ...(this.secondary_runtime ? this.secondary_runtime.env_vars.flatMap(v => ['-E', v]) : []),
                 '-E',
                 `PISTON_LANGUAGE=${this.runtime.language}`,
                 '-E',
                 `COMPILER_LANGUAGE=${this.runtime.language}`,
                 `--dir=${this.runtime.pkgdir}`,
+                ...(this.secondary_runtime ? [`--dir=${this.secondary_runtime.pkgdir}`] : []),
                 `--dir=/etc:noexec`,
                 `--processes=${this.runtime.max_process_count}`,
                 `--open-files=${this.runtime.max_open_files}`,

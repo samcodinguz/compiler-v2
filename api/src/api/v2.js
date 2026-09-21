@@ -122,13 +122,27 @@ import subprocess, sys, os, json
 cfg = json.load(open("interactive_config.json", "r", encoding="utf-8"))
 AC, WA, PE, TL, ML = 0xAC, 0xAD, 0xAE, 0xAF, 0xB0
 
+proc_env = None
 if cfg.get("compiled"):
     binary = cfg["binary"]
     try:
         os.chmod(binary, 0o755)
     except Exception:
         pass
-    run_cmd = ["./" + binary]
+    user_pkgdir = cfg.get("user_pkgdir")
+    if user_pkgdir:
+        # Kontestant tilining O'Z "run" skripti orqali ishga tushiramiz (xuddi
+        # oddiy, interaktiv bo'lmagan ijrodagi kabi) — .NET/Mono kabi o'z
+        # runtime-launcher (dotnet/mono) talab qiladigan tillar to'g'ri
+        # ishlashi uchun shart; C++/Pascal kabi native tillar uchun ham bu
+        # skript xuddi to'g'ridan-to'g'ri "./binary" bilan bir xil natija
+        # beradi (run skriptlari ham shu ishni qiladi).
+        run_cmd = ["/bin/bash", os.path.join(user_pkgdir, "run"), cfg.get("source_file") or "code"]
+        proc_env = dict(os.environ)
+        proc_env["PISTON_LANGUAGE"] = cfg.get("user_language")
+        proc_env["COMPILER_LANGUAGE"] = cfg.get("user_language")
+    else:
+        run_cmd = ["./" + binary]
 elif cfg.get("user_language") == "python":
     run_cmd = [sys.executable, cfg["source_file"]]
 else:
@@ -142,6 +156,7 @@ try:
         stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
+        env=proc_env,
     )
 except Exception:
     sys.exit(WA)
@@ -598,9 +613,17 @@ async function compile_for_interactive(user_rt, user_files) {
 
 async function run_interactive_checker(python_rt, user_rt, { checker_code, input, answer, user_files, run_timeout, cpu_time, memory_limit }) {
     const is_python = user_rt.language === 'python';
-    const config = { user_language: user_rt.language, compiled: false, binary: null, source_file: null };
+    const config = { user_language: user_rt.language, compiled: false, binary: null, source_file: null, user_pkgdir: null };
     const extra_files = [];
     let compile_result_obj = null;
+    // Kontestant tili compiled bo'lsa (masalan C++/.NET/Mono), checker_job'ga
+    // shu tilning papkasini/muhit o'zgaruvchilarini QO'SHIMCHA ulash kerak —
+    // aks holda .NET/Mono kabi o'z runtime-launcher talab qiladigan tillar
+    // ishlay olmaydi (job.js'dagi Job.secondary_runtime'ga qarang). Python
+    // uchun kerak emas — u allaqachon checker_job'ning ASOSIY (python_rt)
+    // muhitida, qo'shimcha mount qilinsa xuddi shu papka ikki marta ulanib,
+    // isolate xatosiga olib kelishi mumkin.
+    let secondary_runtime = null;
 
     if (user_rt.compiled) {
         const info = await compile_for_interactive(user_rt, user_files);
@@ -609,6 +632,15 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
         }
         config.compiled = true;
         config.binary = info.binary_name;
+        // Kontestant tilining o'z "run" skripti (masalan .NET uchun `dotnet
+        // fayl.dll` deb to'g'ri chaqiradigan) manba fayl nomini kutadi va
+        // birinchi argumentni har doim shift qilib tashlaydi (compile.sh/run
+        // skriptlaridagi umumiy konventsiya — qarang: packages/*/run) — shu
+        // sababli haqiqiy binary nomi emas, ASL manba fayl nomi beriladi.
+        const code_files = user_files.filter(f => (!f.encoding || f.encoding === 'utf8') && f.name !== 'input.txt');
+        config.source_file = code_files[0]?.name || 'code';
+        config.user_pkgdir = user_rt.pkgdir;
+        secondary_runtime = user_rt;
         compile_result_obj = info.compile_result;
         extra_files.push({ name: info.binary_name, content: info.binary_data, encoding: 'base64' });
     } else if (is_python) {
@@ -628,6 +660,7 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
 
     const checker_job = new Job({
         runtime: python_rt,
+        secondary_runtime,
         files: [
             { name: 'interactive_runner.py',  content: INTERACTIVE_RUNNER,          encoding: 'utf8' },
             { name: 'checker.py',             content: checker_code,                encoding: 'utf8' },
@@ -743,7 +776,22 @@ async function do_check(req_body, res) {
         // bo'lgani uchun pastdagi CHECKER_VERDICTS qidiruvi hech narsa
         // topmay, chalg'ituvchi "WA" (Wrong Answer) bilan yakunlanardi.
         const compile_failed = ires.compile && (ires.compile.code !== 0 || ires.compile.status);
-        const verdict = compile_failed ? 'CE' : (CHECKER_VERDICTS[checker_exit] ?? 'WA');
+        // checker_job (interaktor + kontestant) isolate tomonidan vaqt/xotira
+        // tugagani sababli majburan o'chirilishi mumkin (masalan .NET kabi
+        // og'ir runtime'lar ko'p xotira yeydi) — bunda run.code aniqlanmagan
+        // bo'ladi, lekin run.status (TO/ML/OL) orqali haqiqiy sabab ma'lum.
+        // DIQQAT: bu yerda to'liq verdict_from_run() ishlatilmaydi — uning
+        // oxirgi "code!==0 => RE" qoidasi bizning ODATIY AC/WA/PE holatlarini
+        // ham (ular hammasi nolga teng bo'lmagan chiqish kodlari orqali
+        // ataylab signal beradi) noto'g'ri "RE" deb belgilab qo'yardi. Shuning
+        // uchun faqat isolate darajasidagi haqiqiy g'ayrioddiy holatlar
+        // (TO/ML/OL/EL) tekshiriladi.
+        const isolate_verdict =
+            ires.run?.status === 'TO' ? 'TL' :
+            (ires.run?.status === 'OL' || ires.run?.status === 'EL') ? 'OL' :
+            ires.run?.status === 'ML' ? 'ML' :
+            null;
+        const verdict = compile_failed ? 'CE' : (isolate_verdict ?? (CHECKER_VERDICTS[checker_exit] ?? 'WA'));
         return res.json({
             language: ires.language,
             version: ires.version,
