@@ -611,11 +611,12 @@ async function compile_for_interactive(user_rt, user_files) {
     }
 }
 
-async function run_interactive_checker(python_rt, user_rt, { checker_code, input, answer, user_files, run_timeout, cpu_time, memory_limit }) {
+async function run_interactive_checker(python_rt, user_rt, { checker_code, input, answer, user_files, run_timeout, cpu_time, memory_limit, skip_compile = false, return_binary = false }) {
     const is_python = user_rt.language === 'python';
     const config = { user_language: user_rt.language, compiled: false, binary: null, source_file: null, user_pkgdir: null };
     const extra_files = [];
     let compile_result_obj = null;
+    let compiled_binary_out = null;
     // Kontestant tili compiled bo'lsa (masalan C++/.NET/Mono), checker_job'ga
     // shu tilning papkasini/muhit o'zgaruvchilarini QO'SHIMCHA ulash kerak —
     // aks holda .NET/Mono kabi o'z runtime-launcher talab qiladigan tillar
@@ -626,23 +627,50 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
     let secondary_runtime = null;
 
     if (user_rt.compiled) {
-        const info = await compile_for_interactive(user_rt, user_files);
-        if (info.compile_error) {
-            return { compile: info.compile_error, run: undefined, language: user_rt.language, version: user_rt.version.raw };
+        let binary_name, binary_data;
+        if (skip_compile) {
+            // Compile-once: bu kod avvalgi (1-) testda allaqachon compile
+            // qilingan — bu safar qayta compile qilinmaydi, Django yuborgan
+            // base64 binary fayl to'g'ridan-to'g'ri ishlatiladi (normal
+            // /check yo'lidagi precompiled_binary bilan bir xil mantiq).
+            const binary_file = user_files.find(f => f.encoding === 'base64');
+            if (!binary_file) {
+                return {
+                    compile: { code: 1, stderr: 'skip_compile uchun precompiled binary fayl topilmadi', stdout: '', status: null },
+                    run: undefined, language: user_rt.language, version: user_rt.version.raw,
+                };
+            }
+            binary_name = binary_file.name;
+            binary_data = binary_file.content;
+        } else {
+            const info = await compile_for_interactive(user_rt, user_files);
+            if (info.compile_error) {
+                return { compile: info.compile_error, run: undefined, language: user_rt.language, version: user_rt.version.raw };
+            }
+            binary_name = info.binary_name;
+            binary_data = info.binary_data;
+            compile_result_obj = info.compile_result;
+            // return_binary=true bo'lsa, keyingi testlar shu binaryni
+            // skip_compile bilan qayta ishlatishi uchun qaytarib beramiz.
+            if (return_binary) {
+                compiled_binary_out = { name: binary_name, data: binary_data };
+            }
         }
         config.compiled = true;
-        config.binary = info.binary_name;
+        config.binary = binary_name;
         // Kontestant tilining o'z "run" skripti (masalan .NET uchun `dotnet
         // fayl.dll` deb to'g'ri chaqiradigan) manba fayl nomini kutadi va
         // birinchi argumentni har doim shift qilib tashlaydi (compile.sh/run
         // skriptlaridagi umumiy konventsiya — qarang: packages/*/run) — shu
-        // sababli haqiqiy binary nomi emas, ASL manba fayl nomi beriladi.
+        // sababli haqiqiy binary nomi emas, ASL manba fayl nomi beriladi
+        // (skip_compile holatida manba kod umuman yuborilmagani uchun,
+        // o'rniga binary nomi ishlatiladi — real qiymati skript tomonidan
+        // baribir e'tiborsiz qoldiriladi).
         const code_files = user_files.filter(f => (!f.encoding || f.encoding === 'utf8') && f.name !== 'input.txt');
-        config.source_file = code_files[0]?.name || 'code';
+        config.source_file = code_files[0]?.name || binary_name;
         config.user_pkgdir = user_rt.pkgdir;
         secondary_runtime = user_rt;
-        compile_result_obj = info.compile_result;
-        extra_files.push({ name: info.binary_name, content: info.binary_data, encoding: 'base64' });
+        extra_files.push({ name: binary_name, content: binary_data, encoding: 'base64' });
     } else if (is_python) {
         // input.txt manba fayl emas — chetlab o'tiladi (yuqoridagi
         // compile_for_interactive'dagi bilan bir xil sabab).
@@ -688,7 +716,13 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
             await fs.chmod(path.join(box.dir, 'submission', config.binary), 0o755).catch(() => {});
         }
         const result = await checker_job.execute(box);
-        return { compile: compile_result_obj, run: result.run, language: user_rt.language, version: user_rt.version.raw };
+        return {
+            compile: compile_result_obj,
+            run: result.run,
+            language: user_rt.language,
+            version: user_rt.version.raw,
+            ...(compiled_binary_out ? { compiled_binary: compiled_binary_out } : {}),
+        };
     } finally {
         checker_job.cleanup().catch(() => {});
     }
@@ -764,6 +798,12 @@ async function do_check(req_body, res) {
                 cpu_time: job.cpu_times.run,
                 memory_limit: job.memory_limits.run,
                 user_files: req_body.files || [],
+                // compile-once: /check'ning normal (interaktiv bo'lmagan)
+                // yo'lidagi bilan bir xil bayroqlar — 1-testda return_binary
+                // bilan binary qaytariladi, keyingi testlarda skip_compile +
+                // shu binary bilan qayta compile qilinmaydi.
+                skip_compile: !!req_body.skip_compile,
+                return_binary: !!req_body.return_binary,
             });
         } catch (error) {
             logger.error(`Interactive checker xatosi: ${error.message}`);
@@ -799,6 +839,7 @@ async function do_check(req_body, res) {
             checker_exit,
             ...(ires.compile ? { compile: format_stage(ires.compile) } : {}),
             run: format_stage(ires.run),
+            ...(ires.compiled_binary ? { compiled_binary: ires.compiled_binary } : {}),
         });
     }
 
