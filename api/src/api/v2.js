@@ -552,7 +552,10 @@ async function run_validator(python_rt, { validator_config, solution_code }) {
 async function compile_for_interactive(user_rt, user_files) {
     if (!user_rt.compiled) return { compiled: false };
 
-    const code_files = user_files.filter(f => !f.encoding || f.encoding === 'utf8');
+    // input.txt manba kod emas (job.js'dagi Job.execute()'dagi bir xil
+    // istisno bilan mos) — buni chetlab o'tmasak, compile skriptiga
+    // qo'shimcha argument sifatida yuborilib, compile xatosiga olib keladi.
+    const code_files = user_files.filter(f => (!f.encoding || f.encoding === 'utf8') && f.name !== 'input.txt');
     const compile_job = new Job({
         runtime: user_rt,
         files: user_files,
@@ -609,7 +612,9 @@ async function run_interactive_checker(python_rt, user_rt, { checker_code, input
         compile_result_obj = info.compile_result;
         extra_files.push({ name: info.binary_name, content: info.binary_data, encoding: 'base64' });
     } else if (is_python) {
-        const code_files = user_files.filter(f => !f.encoding || f.encoding === 'utf8');
+        // input.txt manba fayl emas — chetlab o'tiladi (yuqoridagi
+        // compile_for_interactive'dagi bilan bir xil sabab).
+        const code_files = user_files.filter(f => (!f.encoding || f.encoding === 'utf8') && f.name !== 'input.txt');
         config.source_file = code_files[0]?.name || 'code.py';
         extra_files.push(...user_files);
     } else {
@@ -732,7 +737,13 @@ async function do_check(req_body, res) {
             return res.status(500).json({ message: 'Interactive checker xatosi: ' + error.message });
         }
         const checker_exit = ires.run?.code ?? null;
-        const verdict = CHECKER_VERDICTS[checker_exit] ?? 'WA';
+        // Kontestantning o'z kodi compile bo'lmasa (masalan sintaksis xatosi),
+        // buni ham xuddi oddiy (interaktiv bo'lmagan) /check yo'lidagi kabi
+        // aniq "CE" sifatida qaytaramiz — aks holda ires.run aniqlanmagan
+        // bo'lgani uchun pastdagi CHECKER_VERDICTS qidiruvi hech narsa
+        // topmay, chalg'ituvchi "WA" (Wrong Answer) bilan yakunlanardi.
+        const compile_failed = ires.compile && (ires.compile.code !== 0 || ires.compile.status);
+        const verdict = compile_failed ? 'CE' : (CHECKER_VERDICTS[checker_exit] ?? 'WA');
         return res.json({
             language: ires.language,
             version: ires.version,
