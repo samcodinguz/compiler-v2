@@ -122,6 +122,20 @@ import subprocess, sys, os, json
 cfg = json.load(open("interactive_config.json", "r", encoding="utf-8"))
 AC, WA, PE, TL, ML = 0xAC, 0xAD, 0xAE, 0xAF, 0xB0
 
+# Kontestant jarayoni bilan BIR XIL katalogda ishlagani uchun, agar bu
+# fayllar diskda qolsa, kontestant dasturi (masalan open("input.txt"))
+# haqiqiy interaktivlikni chetlab o'tib, javobni to'g'ridan-to'g'ri
+# o'qib olishi mumkin edi. Shuning uchun tarkibni xotiraga o'qib
+# olgach, KONTESTANT ISHGA TUSHIRILISHIDAN OLDIN fayllarni o'chiramiz.
+input_data = open("input.txt", encoding="utf-8").read()
+answer_data = open("answer.txt", encoding="utf-8").read()
+checker_src = open("checker.py", encoding="utf-8").read()
+for _fname in ("input.txt", "answer.txt", "checker.py", "interactive_config.json"):
+    try:
+        os.remove(_fname)
+    except Exception:
+        pass
+
 proc_env = None
 if cfg.get("compiled"):
     binary = cfg["binary"]
@@ -166,11 +180,10 @@ _g = {
     "sys": sys, "os": os, "subprocess": subprocess,
     "proc": proc,
     "AC": AC, "WA": WA, "PE": PE, "TL": TL, "ML": ML,
-    "input_data": open("input.txt", encoding="utf-8").read(),
-    "answer_data": open("answer.txt", encoding="utf-8").read(),
+    "input_data": input_data,
+    "answer_data": answer_data,
 }
 
-checker_src = open("checker.py", encoding="utf-8").read()
 try:
     exec(checker_src, _g)
     proc.kill()
