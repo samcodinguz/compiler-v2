@@ -123,6 +123,32 @@ async function measure_runtime_baseline(runtime) {
     return promise;
 }
 
+// Ikkita runtime'ning "KEY=VALUE" muhit o'zgaruvchilar ro'yxatini birlashtiradi
+// (interaktiv checker_job'da asosiy (python) va kontestant tilining o'ziga
+// tegishli muhitlari bir box'da yonma-yon kerak bo'lganda ishlatiladi).
+// Oddiy string birlashtirishda (concat) ikkala tomonda ham bo'lgan kalitlar
+// (eng muhimi — PATH) isolate'ga IKKI MARTA '-E' bilan berilib, ikkinchisi
+// birinchisini butunlay bosib, o'sha runtime'ning o'z papkasini PATH'dan
+// yo'qotib qo'yadi. Shu sabab PATH alohida QO'SHIB (birlashtirib) beriladi,
+// qolgan kalitlar uchun esa primary ustuvor (u — box'ning asosiy runtime'i).
+function merge_env_vars(primary_vars, secondary_vars) {
+    if (!secondary_vars) return primary_vars;
+    const parse = lines =>
+        Object.fromEntries(
+            lines.map(line => {
+                const i = line.indexOf('=');
+                return i === -1 ? [line, ''] : [line.slice(0, i), line.slice(i + 1)];
+            })
+        );
+    const primary = parse(primary_vars);
+    const secondary = parse(secondary_vars);
+    const merged = { ...secondary, ...primary };
+    if (primary.PATH && secondary.PATH) {
+        merged.PATH = `${primary.PATH}:${secondary.PATH}`;
+    }
+    return Object.entries(merged).map(([k, v]) => `${k}=${v}`);
+}
+
 class Job {
     #dirty_boxes;
     constructor({
@@ -287,12 +313,11 @@ class Job {
                 '/box/submission',
                 '-E',
                 'HOME=/tmp',
-                ...this.runtime.env_vars.flatMap(v => ['-E', v]),
                 // secondary_runtime berilgan bo'lsa (interaktiv checker_job'da
                 // kontestantning o'z tili) — uning muhit o'zgaruvchilari ham
-                // (masalan DOTNET_ROOT/PATH) shu yerga qo'shiladi, aks holda
-                // bo'sh massiv — hech narsa o'zgarmaydi.
-                ...(this.secondary_runtime ? this.secondary_runtime.env_vars.flatMap(v => ['-E', v]) : []),
+                // (masalan DOTNET_ROOT/PATH) shu yerga qo'shib beriladi (PATH
+                // ikkalasiniki ham saqlanishi uchun merge_env_vars orqali).
+                ...merge_env_vars(this.runtime.env_vars, this.secondary_runtime?.env_vars).flatMap(v => ['-E', v]),
                 '-E',
                 `PISTON_LANGUAGE=${this.runtime.language}`,
                 '-E',
